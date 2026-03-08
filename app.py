@@ -27,8 +27,8 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # Configuration
 # Default to 1 if not set, but user can set higher for powerful servers
 MAX_CONCURRENT_JOBS = int(os.environ.get("MAX_CONCURRENT_JOBS", "5"))
-MAX_FILE_SIZE_MB = 2048  # 2GB limit
-JOB_RETENTION_SECONDS = 3600  # 1 hour retention
+MAX_FILE_SIZE_MB = 20048  # 20GB limit
+JOB_RETENTION_SECONDS = 36000  # 11 hour retention
 
 # Application State
 job_queue = asyncio.Queue()
