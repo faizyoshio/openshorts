@@ -29,14 +29,15 @@ load_dotenv()
 ASPECT_RATIO = 9 / 16
 
 GEMINI_PROMPT_TEMPLATE = """
-You are a senior short-form video editor. Read the ENTIRE transcript and word-level timestamps to choose the 3–15 MOST VIRAL moments for TikTok/IG Reels/YouTube Shorts. Each clip must be between 15 and 60 seconds long.
+You are a senior short-form video editor. Read the ENTIRE transcript and word-level timestamps to choose exactly {clip_count} MOST VIRAL moments for TikTok/IG Reels/YouTube Shorts.
+Each clip must be between {min_clip_duration} and {max_clip_duration} seconds long.
 
-⚠️ FFMPEG TIME CONTRACT — STRICT REQUIREMENTS:
+FFMPEG TIME CONTRACT - STRICT REQUIREMENTS:
 - Return timestamps in ABSOLUTE SECONDS from the start of the video (usable in: ffmpeg -ss <start> -to <end> -i <input> ...).
 - Only NUMBERS with decimal point, up to 3 decimals (examples: 0, 1.250, 17.350).
-- Ensure 0 ≤ start < end ≤ VIDEO_DURATION_SECONDS.
-- Each clip between 15 and 60 s (inclusive).
-- Prefer starting 0.2–0.4 s BEFORE the hook and ending 0.2–0.4 s AFTER the payoff.
+- Ensure 0 <= start < end <= VIDEO_DURATION_SECONDS.
+- Each clip between {min_clip_duration} and {max_clip_duration} s (inclusive).
+- Prefer starting 0.2-0.4 s BEFORE the hook and ending 0.2-0.4 s AFTER the payoff.
 - Use silence moments for natural cuts; never cut in the middle of a word or phrase.
 - STRICTLY FORBIDDEN to use time formats other than absolute seconds.
 
@@ -50,9 +51,9 @@ WORDS_JSON (array of {{w, s, e}} where s/e are seconds):
 
 STRICT EXCLUSIONS:
 - No generic intros/outros or purely sponsorship segments unless they contain the hook.
-- No clips < 15 s or > 60 s.
+- No clips < {min_clip_duration} s or > {max_clip_duration} s.
 
-OUTPUT — RETURN ONLY VALID JSON (no markdown, no comments). Order clips by predicted performance (best to worst). In the descriptions, ALWAYS include a CTA like "Follow me and comment X and I'll send you the workflow" (especially if discussing an n8n workflow):
+OUTPUT - RETURN ONLY VALID JSON (no markdown, no comments). Order clips by predicted performance (best to worst). In the descriptions, ALWAYS include a CTA like "Follow me and comment X and I'll send you the workflow" (especially if discussing an n8n workflow):
 {{
   "shorts": [
     {{
@@ -452,11 +453,34 @@ def sanitize_filename(filename):
 def download_youtube_video(url, output_dir="."):
     """
     Downloads a YouTube video using yt-dlp.
-    Returns the path to the downloaded video and the video title.
+    Prefers the highest source quality and avoids recompression.
+    Returns the path to the downloaded video, sanitized video title, and sanitized channel name.
     """
     print(f"🔍 Debug: yt-dlp version: {yt_dlp.version.__version__}")
     print("📥 Downloading video from YouTube...")
     step_start_time = time.time()
+    os.makedirs(output_dir, exist_ok=True)
+
+    video_extensions = {'.mp4', '.mkv', '.webm', '.mov', '.m4v', '.avi', '.flv'}
+
+    def _is_intermediate_fragment(filename_stem):
+        # yt-dlp temporary adaptive streams usually look like "<title>.f137"
+        return bool(re.search(r"\.f\d+$", filename_stem))
+
+    def _find_download_candidates(base_name):
+        candidates = []
+        for name in os.listdir(output_dir):
+            path = os.path.join(output_dir, name)
+            if not os.path.isfile(path):
+                continue
+            stem, ext = os.path.splitext(name)
+            if ext.lower() not in video_extensions:
+                continue
+            if stem == base_name or stem.startswith(f"{base_name}."):
+                if _is_intermediate_fragment(stem):
+                    continue
+                candidates.append(path)
+        return candidates
 
     cookies_path = '/app/cookies.txt'
     cookies_env = os.environ.get("YOUTUBE_COOKIES")
@@ -478,8 +502,7 @@ def download_youtube_video(url, output_dir="."):
         print("⚠️ YOUTUBE_COOKIES env var not found.")
     
     # Common yt-dlp options to work around YouTube bot detection.
-    # extractor_args tries multiple player clients in order; tv_embed / android
-    # avoid the OAuth/PO-token checks that block server IPs.
+    # Prefer richer clients first so yt-dlp can see higher quality adaptive formats.
     _COMMON_YDL_OPTS = {
         'quiet': False,
         'verbose': True,
@@ -492,7 +515,7 @@ def download_youtube_video(url, output_dir="."):
         'cachedir': False,
         'extractor_args': {
             'youtube': {
-                'player_client': ['tv_embed', 'android', 'mweb', 'web'],
+                'player_client': ['android', 'mweb', 'web', 'tv_embed'],
                 'player_skip': ['webpage', 'configs'],
             }
         },
@@ -509,7 +532,9 @@ def download_youtube_video(url, output_dir="."):
         try:
             info = ydl.extract_info(url, download=False)
             video_title = info.get('title', 'youtube_video')
+            channel_name = info.get('channel') or info.get('uploader') or 'unknown_channel'
             sanitized_title = sanitize_filename(video_title)
+            sanitized_channel = sanitize_filename(channel_name)
         except Exception as e:
             # Force print to stderr/stdout immediately so it's captured before crash
             import sys
@@ -549,34 +574,70 @@ Technical Details: {str(e)}
             raise e
     
     output_template = os.path.join(output_dir, f'{sanitized_title}.%(ext)s')
-    expected_file = os.path.join(output_dir, f'{sanitized_title}.mp4')
-    if os.path.exists(expected_file):
-        os.remove(expected_file)
-        print(f"🗑️  Removed existing file to re-download with H.264 codec")
+    for existing_file in _find_download_candidates(sanitized_title):
+        os.remove(existing_file)
+        print(f"🗑️  Removed existing file to re-download in highest quality: {existing_file}")
     
     ydl_opts = {
         **_COMMON_YDL_OPTS,
-        'format': 'bestvideo[vcodec^=avc1][ext=mp4]+bestaudio[ext=m4a]/bestvideo[vcodec^=avc1]+bestaudio/best[ext=mp4]/best',
+        # Force highest source quality first (adaptive video+audio), then fallback.
+        # yt-dlp merge step is stream-copy (no re-encode / no recompress).
+        'format': 'bestvideo+bestaudio/best',
+        'format_sort': ['res', 'fps', 'tbr', 'size'],
+        'format_sort_force': True,
         'outtmpl': output_template,
-        'merge_output_format': 'mp4',
+        # mkv container is flexible and avoids forcing mp4-specific stream constraints.
+        'merge_output_format': 'mkv',
         'overwrites': True,
+        'noplaylist': True,
     }
     
+    info_dict = None
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
-    
-    downloaded_file = os.path.join(output_dir, f'{sanitized_title}.mp4')
-    
-    if not os.path.exists(downloaded_file):
-        for f in os.listdir(output_dir):
-            if f.startswith(sanitized_title) and f.endswith('.mp4'):
-                downloaded_file = os.path.join(output_dir, f)
-                break
+        info_dict = ydl.extract_info(url, download=True)
+
+    downloaded_file = None
+    if isinstance(info_dict, dict):
+        possible_paths = []
+
+        for key in ('filepath', '_filename'):
+            value = info_dict.get(key)
+            if isinstance(value, str):
+                possible_paths.append(value)
+
+        for stream_info in info_dict.get('requested_downloads') or []:
+            if not isinstance(stream_info, dict):
+                continue
+            for key in ('filepath', '_filename'):
+                value = stream_info.get(key)
+                if isinstance(value, str):
+                    possible_paths.append(value)
+
+        for candidate in possible_paths:
+            if not os.path.exists(candidate):
+                continue
+            stem, ext = os.path.splitext(os.path.basename(candidate))
+            if ext.lower() not in video_extensions:
+                continue
+            if _is_intermediate_fragment(stem):
+                continue
+            downloaded_file = candidate
+            break
+
+    if not downloaded_file:
+        candidates = _find_download_candidates(sanitized_title)
+        if candidates:
+            downloaded_file = max(candidates, key=os.path.getmtime)
+
+    if not downloaded_file or not os.path.exists(downloaded_file):
+        raise FileNotFoundError(
+            f"Could not find downloaded video for title '{sanitized_title}' in {output_dir}"
+        )
     
     step_end_time = time.time()
     print(f"✅ Video downloaded in {step_end_time - step_start_time:.2f}s: {downloaded_file}")
     
-    return downloaded_file, sanitized_title
+    return downloaded_file, sanitized_title, sanitized_channel
 
 def process_video_to_vertical(input_video, final_output_video):
     """
@@ -794,7 +855,77 @@ def transcribe_video(video_path):
         'language': info.language
     }
 
-def get_viral_clips(transcript_result, video_duration):
+def _clamp(value, min_value, max_value):
+    return max(min_value, min(max_value, value))
+
+def get_auto_clip_settings(video_duration, reference_clip_duration=None):
+    """
+    Auto profile based on total source duration.
+    Returns (min_clip_duration, max_clip_duration, clip_count).
+    """
+    if video_duration <= 0:
+        return 15.0, 30.0, 3
+
+    base_duration = reference_clip_duration if reference_clip_duration else _clamp(video_duration / 20.0, 20.0, 45.0)
+    min_clip_duration = _clamp(base_duration * 0.75, 10.0, 60.0)
+    max_clip_duration = _clamp(base_duration * 1.25, min_clip_duration, 60.0)
+
+    if video_duration < min_clip_duration:
+        min_clip_duration = max(3.0, video_duration * 0.6)
+        max_clip_duration = max(min_clip_duration, video_duration)
+
+    # Aim for a balanced number of clips instead of saturating the whole source.
+    clip_count = int(_clamp(round(video_duration / max(base_duration * 3.0, 1.0)), 1, 20))
+
+    return round(min_clip_duration, 3), round(max_clip_duration, 3), clip_count
+
+def normalize_shorts(shorts, video_duration, min_clip_duration, max_clip_duration, desired_clip_count):
+    """
+    Normalize Gemini output so clip boundaries always respect constraints.
+    """
+    normalized = []
+    if not isinstance(shorts, list):
+        return normalized
+
+    for clip in shorts:
+        if len(normalized) >= desired_clip_count:
+            break
+
+        try:
+            start = float(clip.get('start'))
+            end = float(clip.get('end'))
+        except Exception:
+            continue
+
+        start = _clamp(start, 0.0, video_duration)
+        end = _clamp(end, 0.0, video_duration)
+
+        if end <= start:
+            continue
+
+        current_duration = end - start
+        if current_duration < min_clip_duration:
+            end = min(video_duration, start + min_clip_duration)
+            if end - start < min_clip_duration:
+                start = max(0.0, end - min_clip_duration)
+
+        current_duration = end - start
+        if current_duration > max_clip_duration:
+            end = start + max_clip_duration
+            if end > video_duration:
+                end = video_duration
+                start = max(0.0, end - max_clip_duration)
+
+        if end <= start:
+            continue
+
+        clip['start'] = round(start, 3)
+        clip['end'] = round(end, 3)
+        normalized.append(clip)
+
+    return normalized
+
+def get_viral_clips(transcript_result, video_duration, min_clip_duration, max_clip_duration, clip_count):
     print("🤖  Analyzing with Gemini...")
     
     api_key = os.getenv("GEMINI_API_KEY")
@@ -823,7 +954,10 @@ def get_viral_clips(transcript_result, video_duration):
     prompt = GEMINI_PROMPT_TEMPLATE.format(
         video_duration=video_duration,
         transcript_text=json.dumps(transcript_result['text']),
-        words_json=json.dumps(words)
+        words_json=json.dumps(words),
+        min_clip_duration=min_clip_duration,
+        max_clip_duration=max_clip_duration,
+        clip_count=clip_count
     )
 
     try:
@@ -896,6 +1030,8 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--output', type=str, help="Output directory or file (if processing whole video).")
     parser.add_argument('--keep-original', action='store_true', help="Keep the downloaded YouTube video.")
     parser.add_argument('--skip-analysis', action='store_true', help="Skip AI analysis and convert the whole video.")
+    parser.add_argument('--clip-duration-seconds', type=float, default=None, help="Custom target duration for each output clip (seconds).")
+    parser.add_argument('--clip-count', type=int, default=None, help="Custom number of output clips to generate.")
     
     args = parser.parse_args()
 
@@ -922,10 +1058,11 @@ if __name__ == '__main__':
             else:
                 output_dir = "."
         
-        input_video, video_title = download_youtube_video(args.url, output_dir)
+        input_video, video_title, source_channel = download_youtube_video(args.url, output_dir)
     else:
         input_video = args.input
         video_title = os.path.splitext(os.path.basename(input_video))[0]
+        source_channel = "uploaded"
         
         if args.output and not args.skip_analysis:
             # For multi-clip runs, treat --output as an OUTPUT DIRECTORY (create it if needed).
@@ -956,13 +1093,55 @@ if __name__ == '__main__':
         cap = cv2.VideoCapture(input_video)
         fps = cap.get(cv2.CAP_PROP_FPS)
         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        duration = frame_count / fps
+        duration = (frame_count / fps) if fps else 0
         cap.release()
 
+        # Resolve clip settings (custom or auto based on total duration)
+        custom_clip_duration = None
+        if args.clip_duration_seconds is not None:
+            max_allowed_duration = min(60.0, duration) if duration > 0 else 60.0
+            if max_allowed_duration < 10.0:
+                custom_clip_duration = max(3.0, max_allowed_duration)
+            else:
+                custom_clip_duration = _clamp(float(args.clip_duration_seconds), 10.0, max_allowed_duration)
+            min_clip_duration = round(custom_clip_duration, 3)
+            max_clip_duration = round(custom_clip_duration, 3)
+        else:
+            min_clip_duration, max_clip_duration, _ = get_auto_clip_settings(duration)
+
+        if args.clip_count is not None:
+            desired_clip_count = int(_clamp(int(args.clip_count), 1, 20))
+        else:
+            _, _, desired_clip_count = get_auto_clip_settings(duration, reference_clip_duration=custom_clip_duration)
+
+        print(f"🎯 Clip settings: duration {min_clip_duration:.3f}-{max_clip_duration:.3f}s | target clips: {desired_clip_count}")
+
         # 4. Gemini Analysis
-        clips_data = get_viral_clips(transcript, duration)
+        clips_data = get_viral_clips(
+            transcript,
+            duration,
+            min_clip_duration=min_clip_duration,
+            max_clip_duration=max_clip_duration,
+            clip_count=desired_clip_count
+        )
+
+        if clips_data and 'shorts' in clips_data:
+            clips_data['shorts'] = normalize_shorts(
+                clips_data.get('shorts', []),
+                duration,
+                min_clip_duration=min_clip_duration,
+                max_clip_duration=max_clip_duration,
+                desired_clip_count=desired_clip_count
+            )
+            clips_data['clip_settings'] = {
+                "mode_duration": "custom" if args.clip_duration_seconds is not None else "auto",
+                "mode_count": "custom" if args.clip_count is not None else "auto",
+                "min_clip_duration": min_clip_duration,
+                "max_clip_duration": max_clip_duration,
+                "target_clip_count": desired_clip_count
+            }
         
-        if not clips_data or 'shorts' not in clips_data:
+        if not clips_data or 'shorts' not in clips_data or not clips_data.get('shorts'):
             print("❌ Failed to identify clips. Converting whole video as fallback.")
             output_file = os.path.join(output_dir, f"{video_title}_vertical.mp4")
             process_video_to_vertical(input_video, output_file)
@@ -970,6 +1149,13 @@ if __name__ == '__main__':
             print(f"🔥 Found {len(clips_data['shorts'])} viral clips!")
             
             # Save metadata
+            clips_data['source_video_title'] = video_title
+            clips_data['source_channel'] = source_channel
+            for i, clip in enumerate(clips_data['shorts']):
+                clip['source_video_title'] = video_title
+                clip['source_channel'] = source_channel
+                clip['clip_order'] = i + 1
+                clip['output_filename'] = f"{video_title}-{source_channel}-{i + 1}.mp4"
             clips_data['transcript'] = transcript # Save full transcript for subtitles
             metadata_file = os.path.join(output_dir, f"{video_title}_metadata.json")
             with open(metadata_file, 'w') as f:
@@ -984,7 +1170,7 @@ if __name__ == '__main__':
                 print(f"   Title: {clip.get('video_title_for_youtube_short', 'No Title')}")
                 
                 # Cut clip
-                clip_filename = f"{video_title}_clip_{i+1}.mp4"
+                clip_filename = clip.get('output_filename') or f"{video_title}_clip_{i+1}.mp4"
                 clip_temp_path = os.path.join(output_dir, f"temp_{clip_filename}")
                 clip_final_path = os.path.join(output_dir, clip_filename)
                 
@@ -1018,3 +1204,4 @@ if __name__ == '__main__':
 
     total_time = time.time() - script_start_time
     print(f"\n⏱️  Total execution time: {total_time:.2f}s")
+

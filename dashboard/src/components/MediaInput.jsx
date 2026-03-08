@@ -5,13 +5,27 @@ export default function MediaInput({ onProcess, isProcessing }) {
     const [mode, setMode] = useState('url'); // 'url' | 'file'
     const [url, setUrl] = useState('');
     const [file, setFile] = useState(null);
+    const [durationMode, setDurationMode] = useState('auto'); // 'auto' | 'custom'
+    const [clipDuration, setClipDuration] = useState(30);
+    const [countMode, setCountMode] = useState('auto'); // 'auto' | 'custom'
+    const [clipCount, setClipCount] = useState(6);
 
     const handleSubmit = (e) => {
         e.preventDefault();
+        const safeDuration = Math.max(10, Math.min(60, Number(clipDuration) || 30));
+        const safeCount = Math.max(1, Math.min(20, Number(clipCount) || 6));
+
+        const options = {
+            durationMode,
+            clipDuration: durationMode === 'custom' ? safeDuration : null,
+            countMode,
+            clipCount: countMode === 'custom' ? safeCount : null,
+        };
+
         if (mode === 'url' && url) {
-            onProcess({ type: 'url', payload: url });
+            onProcess({ type: 'url', payload: url, options });
         } else if (mode === 'file' && file) {
-            onProcess({ type: 'file', payload: file });
+            onProcess({ type: 'file', payload: file, options });
         }
     };
 
@@ -94,6 +108,82 @@ export default function MediaInput({ onProcess, isProcessing }) {
                         )}
                     </div>
                 )}
+
+                <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-black/20 border border-white/5 rounded-xl p-4 space-y-3">
+                        <p className="text-xs uppercase tracking-wide text-zinc-500">Clip Duration</p>
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setDurationMode('auto')}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${durationMode === 'auto' ? 'bg-primary/20 text-primary border border-primary/30' : 'bg-white/5 text-zinc-400 hover:text-white border border-white/10'}`}
+                            >
+                                Auto
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setDurationMode('custom')}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${durationMode === 'custom' ? 'bg-primary/20 text-primary border border-primary/30' : 'bg-white/5 text-zinc-400 hover:text-white border border-white/10'}`}
+                            >
+                                Custom
+                            </button>
+                        </div>
+                        {durationMode === 'custom' && (
+                            <div className="space-y-1">
+                                <label className="text-[11px] text-zinc-500">Seconds per clip (10 - 60)</label>
+                                <input
+                                    type="number"
+                                    min="10"
+                                    max="60"
+                                    step="1"
+                                    value={clipDuration}
+                                    onChange={(e) => setClipDuration(e.target.value)}
+                                    className="input-field text-sm py-2"
+                                />
+                            </div>
+                        )}
+                        {durationMode === 'auto' && (
+                            <p className="text-[11px] text-zinc-500">Auto calculates duration from total source length.</p>
+                        )}
+                    </div>
+
+                    <div className="bg-black/20 border border-white/5 rounded-xl p-4 space-y-3">
+                        <p className="text-xs uppercase tracking-wide text-zinc-500">Output Count</p>
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setCountMode('auto')}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${countMode === 'auto' ? 'bg-primary/20 text-primary border border-primary/30' : 'bg-white/5 text-zinc-400 hover:text-white border border-white/10'}`}
+                            >
+                                Auto
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setCountMode('custom')}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${countMode === 'custom' ? 'bg-primary/20 text-primary border border-primary/30' : 'bg-white/5 text-zinc-400 hover:text-white border border-white/10'}`}
+                            >
+                                Custom
+                            </button>
+                        </div>
+                        {countMode === 'custom' && (
+                            <div className="space-y-1">
+                                <label className="text-[11px] text-zinc-500">Number of clips (1 - 20)</label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    max="20"
+                                    step="1"
+                                    value={clipCount}
+                                    onChange={(e) => setClipCount(e.target.value)}
+                                    className="input-field text-sm py-2"
+                                />
+                            </div>
+                        )}
+                        {countMode === 'auto' && (
+                            <p className="text-[11px] text-zinc-500">Auto calculates output count from total source length.</p>
+                        )}
+                    </div>
+                </div>
 
                 <button
                     type="submit"

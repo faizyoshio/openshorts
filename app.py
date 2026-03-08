@@ -237,7 +237,7 @@ async def run_job(job_id, job_data):
                         # Check which clips actually exist on disk
                         ready_clips = []
                         for i, clip in enumerate(clips):
-                             clip_filename = f"{base_name}_clip_{i+1}.mp4"
+                             clip_filename = clip.get('output_filename') or f"{base_name}_clip_{i+1}.mp4"
                              clip_path = os.path.join(output_dir, clip_filename)
                              if os.path.exists(clip_path) and os.path.getsize(clip_path) > 0:
                                  # Checking if file is growing? For now assume if it exists and main.py moves it there, it's done.
@@ -278,7 +278,7 @@ async def run_job(job_id, job_data):
                 cost_analysis = data.get('cost_analysis')
 
                 for i, clip in enumerate(clips):
-                     clip_filename = f"{base_name}_clip_{i+1}.mp4"
+                     clip_filename = clip.get('output_filename') or f"{base_name}_clip_{i+1}.mp4"
                      clip['video_url'] = f"/videos/{job_id}/{clip_filename}"
                 
                 jobs[job_id]['result'] = {'clips': clips, 'cost_analysis': cost_analysis}
@@ -297,7 +297,11 @@ async def run_job(job_id, job_data):
 async def process_endpoint(
     request: Request,
     file: Optional[UploadFile] = File(None),
-    url: Optional[str] = Form(None)
+    url: Optional[str] = Form(None),
+    duration_mode: Optional[str] = Form("auto"),
+    clip_duration_seconds: Optional[float] = Form(None),
+    count_mode: Optional[str] = Form("auto"),
+    clip_count: Optional[int] = Form(None)
 ):
     api_key = request.headers.get("X-Gemini-Key")
     if not api_key:
@@ -308,6 +312,38 @@ async def process_endpoint(
     if "application/json" in content_type:
         body = await request.json()
         url = body.get("url")
+        duration_mode = body.get("duration_mode", duration_mode)
+        clip_duration_seconds = body.get("clip_duration_seconds", clip_duration_seconds)
+        count_mode = body.get("count_mode", count_mode)
+        clip_count = body.get("clip_count", clip_count)
+
+    duration_mode = (duration_mode or "auto").strip().lower()
+    count_mode = (count_mode or "auto").strip().lower()
+
+    if duration_mode not in {"auto", "custom"}:
+        raise HTTPException(status_code=400, detail="duration_mode must be 'auto' or 'custom'")
+    if count_mode not in {"auto", "custom"}:
+        raise HTTPException(status_code=400, detail="count_mode must be 'auto' or 'custom'")
+
+    if duration_mode == "custom":
+        if clip_duration_seconds is None:
+            raise HTTPException(status_code=400, detail="clip_duration_seconds is required when duration_mode is 'custom'")
+        try:
+            clip_duration_seconds = float(clip_duration_seconds)
+        except Exception:
+            raise HTTPException(status_code=400, detail="clip_duration_seconds must be a number")
+        if clip_duration_seconds < 10 or clip_duration_seconds > 60:
+            raise HTTPException(status_code=400, detail="clip_duration_seconds must be between 10 and 60")
+
+    if count_mode == "custom":
+        if clip_count is None:
+            raise HTTPException(status_code=400, detail="clip_count is required when count_mode is 'custom'")
+        try:
+            clip_count = int(clip_count)
+        except Exception:
+            raise HTTPException(status_code=400, detail="clip_count must be an integer")
+        if clip_count < 1 or clip_count > 20:
+            raise HTTPException(status_code=400, detail="clip_count must be between 1 and 20")
     
     if not url and not file:
         raise HTTPException(status_code=400, detail="Must provide URL or File")
@@ -341,6 +377,11 @@ async def process_endpoint(
                 buffer.write(content)
                 
         cmd.extend(["-i", input_path])
+
+    if duration_mode == "custom" and clip_duration_seconds is not None:
+        cmd.extend(["--clip-duration-seconds", str(clip_duration_seconds)])
+    if count_mode == "custom" and clip_count is not None:
+        cmd.extend(["--clip-count", str(clip_count)])
 
     cmd.extend(["-o", job_output_dir])
 
@@ -1078,7 +1119,7 @@ async def thumbnail_analyze(
 
         if url:
             from main import download_youtube_video
-            video_path, _ = download_youtube_video(url, UPLOAD_DIR)
+            video_path, _, _ = download_youtube_video(url, UPLOAD_DIR)
         else:
             video_path = os.path.join(UPLOAD_DIR, f"thumb_{session_id}_{file.filename}")
             with open(video_path, "wb") as buffer:

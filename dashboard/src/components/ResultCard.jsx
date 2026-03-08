@@ -32,6 +32,25 @@ export default function ResultCard({ clip, index, jobId, uploadPostKey, uploadUs
     const [showTranslateModal, setShowTranslateModal] = useState(false);
     const [editError, setEditError] = useState(null);
 
+    const slugifyFilenamePart = (value) => {
+        const slug = String(value || '')
+            .toLowerCase()
+            .trim()
+            .normalize('NFKD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 60);
+        return slug || 'video';
+    };
+
+    const buildDownloadFilename = () => {
+        const sourceTitle = clip.source_video_title || clip.video_title_for_youtube_short || 'video';
+        const sourceChannel = clip.source_channel || 'uploaded';
+        const order = clip.clip_order || (index + 1);
+        return `${slugifyFilenamePart(sourceTitle)}-${slugifyFilenamePart(sourceChannel)}-${order}.mp4`;
+    };
+
     // Initialize/Reset form when modal opens
     useEffect(() => {
         if (showModal) {
@@ -452,7 +471,7 @@ export default function ResultCard({ clip, index, jobId, uploadPostKey, uploadUs
                                 const a = document.createElement('a');
                                 a.style.display = 'none';
                                 a.href = url;
-                                a.download = `clip-${index + 1}.mp4`;
+                                a.download = buildDownloadFilename();
                                 document.body.appendChild(a);
                                 a.click();
                                 window.URL.revokeObjectURL(url);

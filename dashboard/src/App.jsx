@@ -311,13 +311,32 @@ function App() {
     try {
       let body;
       const headers = { 'X-Gemini-Key': apiKey };
+      const options = data.options || {};
+      const durationMode = options.durationMode === 'custom' ? 'custom' : 'auto';
+      const countMode = options.countMode === 'custom' ? 'custom' : 'auto';
+      const clipDuration = options.clipDuration != null ? Number(options.clipDuration) : null;
+      const clipCount = options.clipCount != null ? Number(options.clipCount) : null;
 
       if (data.type === 'url') {
         headers['Content-Type'] = 'application/json';
-        body = JSON.stringify({ url: data.payload });
+        body = JSON.stringify({
+          url: data.payload,
+          duration_mode: durationMode,
+          clip_duration_seconds: durationMode === 'custom' ? clipDuration : undefined,
+          count_mode: countMode,
+          clip_count: countMode === 'custom' ? clipCount : undefined,
+        });
       } else {
         const formData = new FormData();
         formData.append('file', data.payload);
+        formData.append('duration_mode', durationMode);
+        formData.append('count_mode', countMode);
+        if (durationMode === 'custom' && clipDuration != null) {
+          formData.append('clip_duration_seconds', String(clipDuration));
+        }
+        if (countMode === 'custom' && clipCount != null) {
+          formData.append('clip_count', String(clipCount));
+        }
         body = formData;
       }
 
@@ -657,30 +676,6 @@ function App() {
                   />
                 )}
 
-                {/* Logs Terminal */}
-                <div className={`bg-[#0c0c0e] rounded-xl border border-white/10 overflow-hidden flex flex-col transition-all duration-500 ${status === 'complete' ? 'h-32 min-h-0 opacity-50 hover:opacity-100' : 'flex-1 min-h-[200px]'}`}>
-                  <div className="px-4 py-2 border-b border-white/5 flex items-center justify-between bg-white/5 shrink-0">
-                    <span className="text-xs font-mono text-zinc-400 flex items-center gap-2">
-                      <Terminal size={12} /> System Logs
-                    </span>
-                    <button onClick={() => setLogsVisible(!logsVisible)} className="text-zinc-500 hover:text-white transition-colors">
-                      {logsVisible ? <ChevronDown size={14} /> : <ChevronDown size={14} className="rotate-180" />}
-                    </button>
-                  </div>
-                  {logsVisible && (
-                    <div className="flex-1 p-4 overflow-y-auto font-mono text-xs space-y-1.5 custom-scrollbar text-zinc-400">
-                      {logs.map((log, i) => (
-                        <div key={i} className={`flex gap-2 ${log.toLowerCase().includes('error') ? 'text-red-400' : 'text-zinc-400'}`}>
-                          <span className="text-zinc-700 shrink-0">{new Date().toLocaleTimeString()}</span>
-                          <span>{log}</span>
-                        </div>
-                      ))}
-                      {status === 'processing' && (
-                        <div className="animate-pulse text-primary/70">_</div>
-                      )}
-                    </div>
-                  )}
-                </div>
               </div>
 
               {/* Right Panel: Results Grid */}
