@@ -103,7 +103,7 @@ export default function MediaInput({ onProcess, isProcessing }) {
                                 />
                                 <Upload className="mx-auto mb-3 text-zinc-500" size={24} />
                                 <p className="text-zinc-400">Click to upload or drag and drop</p>
-                                <p className="text-xs text-zinc-600 mt-1">MP4, MOV up to 500MB</p>
+                                <p className="text-xs text-zinc-600 mt-1">MP4, MOV up to 2000MB</p>
                             </label>
                         )}
                     </div>
