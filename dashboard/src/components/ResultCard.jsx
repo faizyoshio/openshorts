@@ -318,7 +318,24 @@ export default function ResultCard({ clip, index, jobId, uploadPostKey, uploadUs
                 }
             }
 
-            setPostResult({ success: true, msg: isScheduling ? "Scheduled successfully!" : "Posted successfully!" });
+            const data = await res.json();
+            const requestId = data?.request_id || data?._diagnostics?.request_id;
+            const transcodedFlag = data?._diagnostics?.upload_post?.video_was_transcoded_any;
+            const localVideo = data?._diagnostics?.local_video;
+
+            let successMsg = isScheduling ? "Scheduled successfully!" : "Posted successfully!";
+            if (typeof localVideo?.width === 'number' && typeof localVideo?.height === 'number') {
+                successMsg += ` Local file: ${localVideo.width}x${localVideo.height}.`;
+            }
+            if (transcodedFlag === true) {
+                successMsg += " Upload-Post reports this upload was transcoded.";
+            } else if (transcodedFlag === false) {
+                successMsg += " Upload-Post reports no transcoding.";
+            } else if (requestId) {
+                successMsg += ` Request ID: ${requestId}.`;
+            }
+
+            setPostResult({ success: true, msg: successMsg });
             setTimeout(() => {
                 setShowModal(false);
                 setPostResult(null);
@@ -331,15 +348,17 @@ export default function ResultCard({ clip, index, jobId, uploadPostKey, uploadUs
         }
     };
 
+    const isHorizontalOutput = clip?.output_orientation === 'horizontal';
+
     return (
         <div className="bg-surface border border-white/5 rounded-2xl overflow-hidden flex flex-col md:flex-row group hover:border-white/10 transition-all animate-[fadeIn_0.5s_ease-out] min-h-[300px] h-auto" style={{ animationDelay: `${index * 0.1}s` }}>
             {/* Left: Video Preview (Responsive Width) */}
-            <div className="w-full md:w-[180px] lg:w-[200px] bg-black relative shrink-0 aspect-[9/16] md:aspect-auto group/video">
+            <div className={`w-full md:w-[180px] lg:w-[200px] bg-black relative shrink-0 ${isHorizontalOutput ? 'aspect-video md:aspect-auto' : 'aspect-[9/16] md:aspect-auto'} group/video`}>
                 <video
                     ref={videoRef}
                     src={currentVideoUrl}
                     controls
-                    className="w-full h-full object-cover"
+                    className={`w-full h-full ${isHorizontalOutput ? 'object-contain' : 'object-cover'}`}
                     playsInline
                     onPlay={() => {
                         const currentTime = videoRef.current ? videoRef.current.currentTime : 0;

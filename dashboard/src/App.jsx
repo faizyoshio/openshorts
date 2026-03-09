@@ -312,6 +312,7 @@ function App() {
       let body;
       const headers = { 'X-Gemini-Key': apiKey };
       const options = data.options || {};
+      const orientationMode = options.orientationMode === 'horizontal' ? 'horizontal' : 'vertical';
       const durationMode = options.durationMode === 'custom' ? 'custom' : 'auto';
       const countMode = options.countMode === 'custom' ? 'custom' : 'auto';
       const clipDuration = options.clipDuration != null ? Number(options.clipDuration) : null;
@@ -321,6 +322,7 @@ function App() {
         headers['Content-Type'] = 'application/json';
         body = JSON.stringify({
           url: data.payload,
+          orientation_mode: orientationMode,
           duration_mode: durationMode,
           clip_duration_seconds: durationMode === 'custom' ? clipDuration : undefined,
           count_mode: countMode,
@@ -329,6 +331,7 @@ function App() {
       } else {
         const formData = new FormData();
         formData.append('file', data.payload);
+        formData.append('orientation_mode', orientationMode);
         formData.append('duration_mode', durationMode);
         formData.append('count_mode', countMode);
         if (durationMode === 'custom' && clipDuration != null) {

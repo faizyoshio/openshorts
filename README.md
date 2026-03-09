@@ -1,143 +1,160 @@
-# OpenShorts.app 🚀🎬
+# OpenShorts (Fork by faizyoshio)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Open Source](https://badges.frapsoft.com/os/v1/open-source.svg?v=103)](https://opensource.org/)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
+OpenShorts is a self-hosted app that turns long videos (YouTube URL or local upload) into short clips for TikTok, Instagram Reels, and YouTube Shorts.
 
-OpenShorts is an all-in-one open-source solution to automate the creation and distribution of viral vertical content. It transforms long YouTube videos or local files into high-potential short clips optimized for **TikTok**, **Instagram Reels**, and **YouTube Shorts**.
+This repository is a fork of:
+- Upstream: `https://github.com/mutonby/openshorts`
+- This fork: `https://github.com/faizyoshio/openshorts`
 
-![OpenShorts Demo](https://github.com/kamilstanuch/Autocrop-vertical/blob/main/churchil_queen_vertical_short.gif?raw=true)
+## What This Project Does
+- Download video from YouTube or accept local file upload
+- Transcribe with Faster-Whisper
+- Detect high-potential clip moments with Gemini
+- Export clips with optional:
+  - subtitles
+  - hook overlays
+  - translation/dubbing
+  - direct social posting via Upload-Post
 
-### 📺 Video Tutorial: How it works
-[![OpenShorts Tutorial](https://img.youtube.com/vi/xlyjD1qCaX0/maxresdefault.jpg)](https://www.youtube.com/watch?v=xlyjD1qCaX0 "Click to watch the video on YouTube")
+## Quick Start (Recommended)
 
-*Click the image above to watch the full walkthrough.*
-
----
-
-## ✨ Key Features
-
-OpenShorts leverages state-of-the-art AI to handle the entire content lifecycle:
-
-1.  **🧠 Viral Moment Detection:**
-    *   **Faster-Whisper**: High-speed, CPU-optimized transcription and word-level timestamps.
-    *   **Google Gemini 2.0 Flash**: Advanced AI analysis to identify the 3-15 most viral moments based on hooks and engagement potential.
-    *   **Automatic Copywriting**: Generates SEO-optimized titles and descriptions for all platforms.
-
-2.  **✂️ Smart AI Cropping & Tracking (New V2 Engine):**
-    *   **Dual-Mode Strategy**: Automatically detects scene composition to apply the best framing strategy.
-        *   **TRACK Mode (Single Subject)**: Uses **MediaPipe Face Detection** + **YOLOv8** fallback for ultra-fast, robust subject tracking. Features a **"Heavy Tripod" stabilization engine** that eliminates jitter and unnatural movements, providing smooth, cinematic reframing. Includes **Speaker Identification** to stick to the active speaker and avoid erratic switching.
-        *   **GENERAL Mode (Groups/Landscapes)**: For scenes with multiple people or no clear subject, it automatically switches to a professional **blurred-background layout**, preserving the full width of the original shot while filling the 9:16 vertical space.
-    *   **Intelligent Scene Analysis**: Pre-scans every scene to determine the optimal strategy before processing.
-
-3.  **☁️ Automated S3 Backup:**
-    *   **Silent Background Upload**: Once clips are generated, they are automatically uploaded to an AWS S3 bucket.
-    *   **Seamless Integration**: Operates in the background without affecting processing logs or UI performance.
-
-4.  **📲 Direct Social Posting:**
-    *   **Upload-Post Integration**: Share your generated clips directly to TikTok, Instagram, and YouTube with a single click.
-    *   **Profile Selector**: Manage multiple social accounts easily through the dashboard.
-
-5.  **🎙️ AI Voice Dubbing:**
-    *   **ElevenLabs Integration**: Translate your clips to 30+ languages with AI-powered voice dubbing.
-    *   **Voice Cloning**: Preserves the original speaker's voice characteristics in the new language.
-    *   **Auto-Subtitles**: Automatically generates subtitles in the dubbed language.
-
-6.  **🎨 Modern Web Dashboard:**
-    *   **Real-time Progress**: Watch clips appear as they are generated with a live results feed.
-    *   **Log Streaming**: Follow the technical process with real-time log updates.
-    *   **Responsive Design**: A premium, dark-mode glassmorphism interface.
-
-7.  **📺 YouTube Studio (Full Publishing Pipeline):**
-    *   **AI Title Generation**: Upload a video and let Gemini analyze the transcript to suggest viral, SEO-optimized titles with AI-ranked top picks.
-    *   **Title Refinement Chat**: Iteratively refine suggested titles via a built-in chat interface — ask for more clickbait, different tone, etc.
-    *   **AI Thumbnail Generation**: Generate professional thumbnails with optional face overlay, custom background, and extra creative instructions.
-    *   **AI Description with Chapters**: Automatically generates a YouTube description with chapter timestamps derived from the Whisper transcript.
-    *   **One-Click YouTube Publishing**: Publish the final video with its title, thumbnail, and description directly to YouTube via Upload-Post integration.
-    *   **Manual Mode**: Skip video analysis and enter your own title to jump straight to thumbnail generation.
-
----
-
-## 🛠️ Requirements
-
-*   **Docker & Docker Compose**.
-*   **Google Gemini API Key** ([Get it for free here](https://aistudio.google.com/app/apikey)).
-*   **Upload-Post API Key** (Optional, for direct social posting. **Free tier available, no credit card required**).
-*   **ElevenLabs API Key** (Optional, for AI voice dubbing. [Get it here](https://elevenlabs.io)).
-
-### 📲 Social Media Setup (Upload-Post)
-To enable direct posting, follow these steps:
-1.  **Login/Register**: [app.upload-post.com/login](https://app.upload-post.com/login)
-2.  **Create Profile**: Go to [Manage Users](https://app.upload-post.com/manage-users) and create a user profile.
-3.  **Connect Accounts**: In the same section, connect your TikTok, Instagram, or YouTube accounts to that profile.
-4.  **Get API Key**: Navigate to [API Keys](https://app.upload-post.com/api-keys) and generate your key.
-5.  **Use in OpenShorts**: Paste the API Key and select your Profile in the dashboard.
-    
-
-### ☁️ AWS S3 Setup (Optional)
-To enable automatic backup of your clips to S3:
-1. **Environment Variables**: Set the following in your `.env` file or system environment:
-    * `AWS_ACCESS_KEY_ID`: Your AWS access key.
-    * `AWS_SECRET_ACCESS_KEY`: Your AWS secret key.
-    * `AWS_REGION`: (Optional) Defaults to `us-east-1`.
-    * `AWS_S3_BUCKET`: (Optional) Defaults to `openshorts.app-clips`.
-2. **Bucket**: Clips are uploaded to the specified bucket automatically after generation.
-
-
----
-
-## 🚀 Getting Started
-
-The easiest way to run OpenShorts is using Docker Compose.
-
-### 1. Setup
+### 1. Clone
 ```bash
-git clone https://github.com/your-username/OpenShorts.git
-cd OpenShorts
+git clone https://github.com/faizyoshio/openshorts.git
+cd openshorts
 ```
 
-### 2. Launch the Application
+### 2. (Optional) Prepare `.env`
+Copy `.env.example` to `.env` and fill optional values:
+- AWS S3 settings (if you want automatic clip backup)
+- `YOUTUBE_COOKIES` (if YouTube blocks download requests)
+
+### 3. Run with Docker
 ```bash
 docker compose up --build
 ```
 
-### 3. Access the Dashboard
-Open your browser and navigate to:
-**`http://localhost:5173`**
+### 4. Open dashboard
+- Frontend: `http://localhost:5175`
+- Backend API: `http://localhost:8000`
 
-1.  Enter your **Gemini API Key**.
-2.  (Optional) Enter your **Upload-Post API Key** to enable social sharing.
-3.  Paste a **YouTube URL** or **Upload a Video**.
-4.  Click **"Generate Clips"** and watch the magic happen!
+### 5. First usage
+1. Open `Settings`
+2. Enter Gemini API key
+3. (Optional) Enter Upload-Post API key
+4. Go to Dashboard, paste URL/upload file, click `Generate Clips`
 
----
+## Key Runtime Requirements
+- Docker + Docker Compose
+- Gemini API key (required for AI analysis)
+- Upload-Post API key (optional, for one-click social posting)
+- ElevenLabs API key (optional, for dubbing/translation)
 
-## 🏗️ Technical Pipeline
+## Main Processing Options
+From dashboard input:
+- Output orientation:
+  - `Vertical` (9:16 reframing with tracking)
+  - `Horizontal` (keep original framing)
+- Clip duration: `Auto` or `Custom`
+- Output count: `Auto` or `Custom`
 
-1.  **Ingestion**: Downloads YouTube videos via `yt-dlp` or handles local uploads.
-2.  **Transcription**: `faster-whisper` converts audio to text in seconds.
-3.  **AI Intelligence**: Gemini reads the transcript and selects periods of high interest.
-4.  **Extraction**: FFmpeg precisely cuts the selected segments.
-5.  **Reframing**: AI-powered visual tracking crops clips to vertical format.
-6.  **Backup**: Automated silent upload of clips and metadata to AWS S3.
-7.  **Distribution**: One-click posting via Upload-Post API.
-8.  **YouTube Studio**: Full publishing pipeline — AI titles, thumbnails, descriptions with chapters, and direct YouTube upload.
+## Output Format Defaults
+This fork normalizes output for compatibility:
+- Container: `MP4`
+- Video codec: `H.264` (`libx264`, `yuv420p`)
+- Audio codec: `AAC`
+- `+faststart` enabled for web playback
 
----
+## Social Posting Setup (Upload-Post)
+1. Login/register: `https://app.upload-post.com/login`
+2. Create profile: `https://app.upload-post.com/manage-users`
+3. Connect social accounts to that profile
+4. Generate API key: `https://app.upload-post.com/api-keys`
+5. Paste key in app settings, then connect profile
 
-## 🔒 Security & Performance
+## Troubleshooting
 
-*   **Non-Root Execution**: Containers run as a dedicated `appuser` for security.
-*   **Concurrency Control**: Configurable job queue (`MAX_CONCURRENT_JOBS`).
-*   **Auto-Cleanup**: Automatic purging of old jobs and temporary files.
-*   **File Limits**: Built-in protection against oversized uploads.
+### YouTube download quality looks low
+- This fork uses `yt-dlp` format selector `bv*+ba/b` and explicit format sorting.
+- If source itself is low quality, output cannot exceed source quality.
+- If blocked by YouTube anti-bot, set `YOUTUBE_COOKIES` in `.env`.
 
----
+### Frontend not reachable
+- Confirm `docker compose` is running
+- Confirm port `5175` is free
+- Frontend URL is `http://localhost:5175` (not 5173 in this fork)
 
-## 🤝 Contributions
+### Auto post result quality changes
+- Some platforms may transcode uploaded videos.
+- This fork returns diagnostics (including `video_was_transcoded` signal from Upload-Post history/status when available).
 
-Contributions are welcome! Whether it's adding new AI models or improving the cropping engine, feel free to open a PR.
+### Local verification scripts fail
+- Install Python dependencies first (at least `Pillow` for hook checks), or run inside Docker.
 
-## 📄 License
+## Development (Local, Non-Docker)
 
-MIT License. OpenShorts is yours to use, modify, and scale.
+### Backend
+```bash
+python -m pip install -r requirements.txt
+python app.py
+```
+
+### Frontend
+```bash
+cd dashboard
+npm install
+npm run dev
+```
+
+Useful checks:
+```bash
+npm --prefix dashboard run build
+npm --prefix dashboard run lint
+python -m py_compile app.py main.py editor.py hooks.py subtitles.py
+```
+
+## What Changed in This Fork (vs upstream/mutonby)
+
+The following are the major fork-specific changes added and maintained here:
+
+1. Output orientation switch (Vertical or Horizontal)
+- Added end-to-end option from UI -> API -> processing pipeline
+- Horizontal mode keeps source framing; vertical mode keeps AI reframing flow
+
+2. Output normalization to MP4/H.264/AAC
+- Main clip pipeline standardized to MP4 + H.264 + AAC
+- Added playback-friendly flags (`yuv420p`, `+faststart`)
+- Applied to core pipeline and edit/subtitle/hook paths
+
+3. Improved YouTube download quality selection
+- Updated yt-dlp format selector and sort strategy for best available source quality
+- Added logs for selected/downloaded formats
+
+4. Auto-post diagnostics (Upload-Post)
+- Backend now includes post diagnostics payload:
+  - local video specs
+  - request id
+  - status/history fetch
+  - `video_was_transcoded` indicator (when available)
+- UI post feedback now surfaces this information
+
+5. Frontend/dev config fixes
+- Fixed frontend port consistency to `5175` across:
+  - `dashboard/vite.config.js`
+  - `dashboard/Dockerfile`
+  - `docker-compose.yml`
+
+6. Lint/tooling compatibility updates
+- Updated dashboard ESLint setup to run cleanly with current flat config tooling
+- Fixed lint script invocation for modern ESLint CLI
+
+7. Verification scripts hardened for Windows terminals
+- Reworked `verify_*.py` scripts to avoid encoding-related crashes and provide clearer dependency messages
+
+## Security Notes
+- API keys are stored client-side in browser local storage by dashboard logic.
+- Keys are sent to backend only when needed to process requests.
+- Do not expose your self-hosted instance publicly without authentication/proxy hardening.
+
+## License
+MIT (same as upstream unless noted otherwise).

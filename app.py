@@ -298,6 +298,7 @@ async def process_endpoint(
     request: Request,
     file: Optional[UploadFile] = File(None),
     url: Optional[str] = Form(None),
+    orientation_mode: Optional[str] = Form("vertical"),
     duration_mode: Optional[str] = Form("auto"),
     clip_duration_seconds: Optional[float] = Form(None),
     count_mode: Optional[str] = Form("auto"),
@@ -312,14 +313,18 @@ async def process_endpoint(
     if "application/json" in content_type:
         body = await request.json()
         url = body.get("url")
+        orientation_mode = body.get("orientation_mode", orientation_mode)
         duration_mode = body.get("duration_mode", duration_mode)
         clip_duration_seconds = body.get("clip_duration_seconds", clip_duration_seconds)
         count_mode = body.get("count_mode", count_mode)
         clip_count = body.get("clip_count", clip_count)
 
+    orientation_mode = (orientation_mode or "vertical").strip().lower()
     duration_mode = (duration_mode or "auto").strip().lower()
     count_mode = (count_mode or "auto").strip().lower()
 
+    if orientation_mode not in {"vertical", "horizontal"}:
+        raise HTTPException(status_code=400, detail="orientation_mode must be 'vertical' or 'horizontal'")
     if duration_mode not in {"auto", "custom"}:
         raise HTTPException(status_code=400, detail="duration_mode must be 'auto' or 'custom'")
     if count_mode not in {"auto", "custom"}:
@@ -382,6 +387,7 @@ async def process_endpoint(
         cmd.extend(["--clip-duration-seconds", str(clip_duration_seconds)])
     if count_mode == "custom" and clip_count is not None:
         cmd.extend(["--clip-count", str(clip_count)])
+    cmd.extend(["--orientation", orientation_mode])
 
     cmd.extend(["-o", job_output_dir])
 
@@ -864,6 +870,89 @@ class SocialPostRequest(BaseModel):
 
 import httpx
 
+def _probe_video_file(file_path: str) -> Optional[Dict]:
+    """
+    Lightweight local probe so we know the exact file specs before sending to Upload-Post.
+    """
+    try:
+        import cv2
+        cap = cv2.VideoCapture(file_path)
+        if not cap.isOpened():
+            return None
+
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = float(cap.get(cv2.CAP_PROP_FPS) or 0)
+        frame_count = float(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        cap.release()
+
+        duration_seconds = (frame_count / fps) if fps > 0 else None
+        return {
+            "width": width,
+            "height": height,
+            "fps": round(fps, 3) if fps else None,
+            "duration_seconds": round(duration_seconds, 3) if duration_seconds else None,
+        }
+    except Exception:
+        return None
+
+def _fetch_upload_post_diagnostics(api_key: str, request_id: str, timeout_seconds: int = 18) -> Dict:
+    """
+    Poll Upload-Post status/history to detect vendor-side transcoding decisions.
+    """
+    headers = {"Authorization": f"Apikey {api_key}"}
+    status_url = "https://api.upload-post.com/api/uploadposts/status"
+    history_url = "https://api.upload-post.com/api/uploadposts/history"
+
+    status_payload = None
+    status_error = None
+
+    start = time.time()
+    with httpx.Client(timeout=30.0) as client:
+        while (time.time() - start) < timeout_seconds:
+            try:
+                status_resp = client.get(status_url, headers=headers, params={"request_id": request_id})
+                if status_resp.status_code == 200:
+                    status_payload = status_resp.json()
+                    state = str(status_payload.get("status", "")).lower()
+                    if state in {"completed", "failed"}:
+                        break
+                else:
+                    status_error = f"status_http_{status_resp.status_code}"
+            except Exception as e:
+                status_error = str(e)
+            time.sleep(2)
+
+        history_matches = []
+        history_error = None
+        try:
+            history_resp = client.get(history_url, headers=headers, params={"page": 1, "limit": 50})
+            if history_resp.status_code == 200:
+                history_data = history_resp.json()
+                history_rows = history_data.get("history", []) if isinstance(history_data, dict) else []
+                if isinstance(history_rows, list):
+                    history_matches = [row for row in history_rows if row.get("request_id") == request_id]
+            else:
+                history_error = f"history_http_{history_resp.status_code}"
+        except Exception as e:
+            history_error = str(e)
+
+    transcode_flags = [
+        row.get("video_was_transcoded")
+        for row in history_matches
+        if isinstance(row, dict) and row.get("video_was_transcoded") is not None
+    ]
+    any_transcoded = any(transcode_flags) if transcode_flags else None
+
+    return {
+        "request_id": request_id,
+        "status": status_payload,
+        "status_error": status_error,
+        "history_matches": history_matches,
+        "history_error": history_error,
+        "video_was_transcoded_any": any_transcoded,
+    }
+
 @app.post("/api/social/post")
 async def post_to_socials(req: SocialPostRequest):
     if req.job_id not in jobs:
@@ -874,13 +963,21 @@ async def post_to_socials(req: SocialPostRequest):
         raise HTTPException(status_code=400, detail="Job result not available")
         
     try:
-        clip = job['result']['clips'][req.clip_index]
+        clips = job['result']['clips']
+        if req.clip_index < 0 or req.clip_index >= len(clips):
+            raise HTTPException(status_code=400, detail="Invalid clip index")
+
+        clip = clips[req.clip_index]
         # Video URL is relative /videos/..., we need absolute file path
         # clip['video_url'] is like "/videos/{job_id}/{filename}"
         # We constructed it as: f"/videos/{job_id}/{clip_filename}"
         # And file is at f"{OUTPUT_DIR}/{job_id}/{clip_filename}"
-        
-        filename = clip['video_url'].split('/')[-1]
+
+        video_url = clip.get('video_url')
+        if not video_url:
+            raise HTTPException(status_code=400, detail="Clip has no video URL")
+
+        filename = video_url.split('/')[-1]
         file_path = os.path.join(OUTPUT_DIR, req.job_id, filename)
         
         if not os.path.exists(file_path):
@@ -930,6 +1027,9 @@ async def post_to_socials(req: SocialPostRequest):
         # Since we have MAX_FILE_SIZE_MB, reading into memory is safe-ish.
         with open(file_path, "rb") as f:
             file_content = f.read()
+
+        local_probe = _probe_video_file(file_path)
+        local_size_bytes = len(file_content)
             
         files = {
             "video": (filename, file_content, "video/mp4")
@@ -944,8 +1044,37 @@ async def post_to_socials(req: SocialPostRequest):
              print(f"❌ Upload-Post Error: {response.text}")
              raise HTTPException(status_code=response.status_code, detail=f"Vendor API Error: {response.text}")
 
-        return response.json()
+        try:
+            result_payload = response.json()
+        except Exception:
+            result_payload = {"raw_response": response.text}
 
+        request_id = result_payload.get("request_id") if isinstance(result_payload, dict) else None
+        diagnostics = {
+            "local_video": local_probe,
+            "local_file_size_bytes": local_size_bytes,
+            "request_id": request_id,
+            "upload_post": None
+        }
+
+        if request_id:
+            try:
+                upload_post_diag = _fetch_upload_post_diagnostics(req.api_key, request_id)
+                diagnostics["upload_post"] = upload_post_diag
+                print(
+                    f"[AutoPost] diag request_id={request_id} "
+                    f"transcoded={upload_post_diag.get('video_was_transcoded_any')}"
+                )
+            except Exception as diag_err:
+                diagnostics["upload_post"] = {"error": str(diag_err), "request_id": request_id}
+
+        if isinstance(result_payload, dict):
+            result_payload["_diagnostics"] = diagnostics
+            return result_payload
+        return {"vendor_response": result_payload, "_diagnostics": diagnostics}
+
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"❌ Social Post Exception: {e}")
         raise HTTPException(status_code=500, detail=str(e))

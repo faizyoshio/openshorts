@@ -580,14 +580,15 @@ Technical Details: {str(e)}
     
     ydl_opts = {
         **_COMMON_YDL_OPTS,
-        # Force highest source quality first (adaptive video+audio), then fallback.
+        # yt-dlp README format selector for best quality with fallback.
         # yt-dlp merge step is stream-copy (no re-encode / no recompress).
-        'format': 'bestvideo+bestaudio/best',
-        'format_sort': ['res', 'fps', 'tbr', 'size'],
-        'format_sort_force': True,
+        'format': 'bv*+ba/b',
+        # Prioritize highest available resolution/fps first.
+        'format_sort': ['res', 'fps', 'hdr:12', 'vcodec', 'channels', 'acodec', 'size', 'br', 'asr', 'proto', 'ext', 'hasaud', 'source', 'id'],
+        'check_formats': True,
         'outtmpl': output_template,
-        # mkv container is flexible and avoids forcing mp4-specific stream constraints.
-        'merge_output_format': 'mkv',
+        # Force merged download container to MP4.
+        'merge_output_format': 'mp4',
         'overwrites': True,
         'noplaylist': True,
     }
@@ -595,6 +596,21 @@ Technical Details: {str(e)}
     info_dict = None
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info_dict = ydl.extract_info(url, download=True)
+
+    requested_formats = []
+    if isinstance(info_dict, dict):
+        for req_fmt in info_dict.get('requested_formats') or []:
+            if not isinstance(req_fmt, dict):
+                continue
+            fmt_id = req_fmt.get('format_id')
+            if not fmt_id:
+                continue
+            width = req_fmt.get('width')
+            height = req_fmt.get('height')
+            ext = req_fmt.get('ext')
+            requested_formats.append(f"{fmt_id} ({width}x{height}, ext={ext})")
+    if requested_formats:
+        print(f"âœ… Downloaded format(s): {', '.join(requested_formats)}")
 
     downloaded_file = None
     if isinstance(info_dict, dict):
@@ -648,7 +664,7 @@ def process_video_to_vertical(input_video, final_output_video):
     # Define temporary file paths based on the output name
     base_name = os.path.splitext(final_output_video)[0]
     temp_video_output = f"{base_name}_temp_video.mp4"
-    temp_audio_output = f"{base_name}_temp_audio.aac"
+    temp_audio_output = f"{base_name}_temp_audio.m4a"
     
     # Clean up previous temp files if they exist
     if os.path.exists(temp_video_output): os.remove(temp_video_output)
@@ -692,7 +708,8 @@ def process_video_to_vertical(input_video, final_output_video):
         'ffmpeg', '-y', '-f', 'rawvideo', '-vcodec', 'rawvideo',
         '-s', f'{OUTPUT_WIDTH}x{OUTPUT_HEIGHT}', '-pix_fmt', 'bgr24',
         '-r', str(fps), '-i', '-', '-c:v', 'libx264',
-        '-preset', 'fast', '-crf', '23', '-an', temp_video_output
+        '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p',
+        '-an', temp_video_output
     ]
 
     ffmpeg_process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -777,7 +794,9 @@ def process_video_to_vertical(input_video, final_output_video):
 
     print("\n   🔊 Step 5: Extracting audio...")
     audio_extract_command = [
-        'ffmpeg', '-y', '-i', input_video, '-vn', '-acodec', 'copy', temp_audio_output
+        'ffmpeg', '-y', '-i', input_video, '-vn',
+        '-c:a', 'aac', '-b:a', '192k', '-ar', '48000',
+        temp_audio_output
     ]
     try:
         subprocess.run(audio_extract_command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -789,12 +808,12 @@ def process_video_to_vertical(input_video, final_output_video):
     if os.path.exists(temp_audio_output):
         merge_command = [
             'ffmpeg', '-y', '-i', temp_video_output, '-i', temp_audio_output,
-            '-c:v', 'copy', '-c:a', 'copy', final_output_video
+            '-c:v', 'copy', '-c:a', 'copy', '-movflags', '+faststart', final_output_video
         ]
     else:
          merge_command = [
             'ffmpeg', '-y', '-i', temp_video_output,
-            '-c:v', 'copy', final_output_video
+            '-c:v', 'copy', '-movflags', '+faststart', final_output_video
         ]
         
     try:
@@ -810,6 +829,32 @@ def process_video_to_vertical(input_video, final_output_video):
     if os.path.exists(temp_audio_output): os.remove(temp_audio_output)
     
     return True
+
+def process_video_horizontal(input_video, final_output_video, crf=18):
+    """
+    Keeps original framing (horizontal mode) and normalizes output to MP4 H.264/AAC.
+    """
+    try:
+        if os.path.exists(final_output_video):
+            os.remove(final_output_video)
+
+        cmd = [
+            'ffmpeg', '-y',
+            '-i', input_video,
+            '-c:v', 'libx264', '-preset', 'medium', '-crf', str(crf),
+            '-pix_fmt', 'yuv420p',
+            '-c:a', 'aac', '-b:a', '192k', '-ar', '48000',
+            '-movflags', '+faststart',
+            final_output_video
+        ]
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        return True
+    except subprocess.CalledProcessError as e:
+        try:
+            print(f"   ❌ Horizontal processing failed: {e.stderr.decode()}")
+        except Exception:
+            print("   ❌ Horizontal processing failed.")
+        return False
 
 def transcribe_video(video_path):
     print("🎙️  Transcribing video with Faster-Whisper (CPU Optimized)...")
@@ -1028,6 +1073,7 @@ if __name__ == '__main__':
     input_group.add_argument('-u', '--url', type=str, help="YouTube URL to download and process.")
     
     parser.add_argument('-o', '--output', type=str, help="Output directory or file (if processing whole video).")
+    parser.add_argument('--orientation', type=str, choices=['vertical', 'horizontal'], default='vertical', help="Output orientation mode.")
     parser.add_argument('--keep-original', action='store_true', help="Keep the downloaded YouTube video.")
     parser.add_argument('--skip-analysis', action='store_true', help="Skip AI analysis and convert the whole video.")
     parser.add_argument('--clip-duration-seconds', type=float, default=None, help="Custom target duration for each output clip (seconds).")
@@ -1082,9 +1128,15 @@ if __name__ == '__main__':
 
     # 2. Decision: Analyze clips or process whole?
     if args.skip_analysis:
-        print("⏩ Skipping analysis, processing entire video...")
-        output_file = args.output if args.output else os.path.join(output_dir, f"{video_title}_vertical.mp4")
-        process_video_to_vertical(input_video, output_file)
+        print("Skipping analysis, processing entire video...")
+        orientation_suffix = "vertical" if args.orientation == "vertical" else "horizontal"
+        output_file = args.output if args.output else os.path.join(output_dir, f"{video_title}_{orientation_suffix}.mp4")
+        if os.path.splitext(output_file)[1].lower() != '.mp4':
+            output_file = f"{os.path.splitext(output_file)[0]}.mp4"
+        if args.orientation == "vertical":
+            process_video_to_vertical(input_video, output_file)
+        else:
+            process_video_horizontal(input_video, output_file, crf=18)
     else:
         # 3. Transcribe
         transcript = transcribe_video(input_video)
@@ -1138,13 +1190,18 @@ if __name__ == '__main__':
                 "mode_count": "custom" if args.clip_count is not None else "auto",
                 "min_clip_duration": min_clip_duration,
                 "max_clip_duration": max_clip_duration,
-                "target_clip_count": desired_clip_count
+                "target_clip_count": desired_clip_count,
+                "orientation_mode": args.orientation
             }
         
         if not clips_data or 'shorts' not in clips_data or not clips_data.get('shorts'):
-            print("❌ Failed to identify clips. Converting whole video as fallback.")
-            output_file = os.path.join(output_dir, f"{video_title}_vertical.mp4")
-            process_video_to_vertical(input_video, output_file)
+            print("Failed to identify clips. Converting whole video as fallback.")
+            orientation_suffix = "vertical" if args.orientation == "vertical" else "horizontal"
+            output_file = os.path.join(output_dir, f"{video_title}_{orientation_suffix}.mp4")
+            if args.orientation == "vertical":
+                process_video_to_vertical(input_video, output_file)
+            else:
+                process_video_horizontal(input_video, output_file, crf=18)
         else:
             print(f"🔥 Found {len(clips_data['shorts'])} viral clips!")
             
@@ -1155,6 +1212,7 @@ if __name__ == '__main__':
                 clip['source_video_title'] = video_title
                 clip['source_channel'] = source_channel
                 clip['clip_order'] = i + 1
+                clip['output_orientation'] = args.orientation
                 clip['output_filename'] = f"{video_title}-{source_channel}-{i + 1}.mp4"
             clips_data['transcript'] = transcript # Save full transcript for subtitles
             metadata_file = os.path.join(output_dir, f"{video_title}_metadata.json")
@@ -1181,14 +1239,29 @@ if __name__ == '__main__':
                     '-ss', str(start), 
                     '-to', str(end), 
                     '-i', input_video,
-                    '-c:v', 'libx264', '-crf', '18', '-preset', 'fast',
-                    '-c:a', 'aac',
+                    '-c:v', 'libx264', '-crf', '16', '-preset', 'medium',
+                    '-pix_fmt', 'yuv420p',
+                    '-c:a', 'aac', '-b:a', '192k', '-ar', '48000',
+                    '-movflags', '+faststart',
                     clip_temp_path
                 ]
                 subprocess.run(cut_command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
                 
-                # Process vertical
-                success = process_video_to_vertical(clip_temp_path, clip_final_path)
+                # Process output by selected orientation
+                if args.orientation == "vertical":
+                    success = process_video_to_vertical(clip_temp_path, clip_final_path)
+                else:
+                    remux_command = [
+                        'ffmpeg', '-y', '-i', clip_temp_path,
+                        '-c:v', 'copy', '-c:a', 'copy',
+                        '-movflags', '+faststart',
+                        clip_final_path
+                    ]
+                    try:
+                        subprocess.run(remux_command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                        success = True
+                    except subprocess.CalledProcessError:
+                        success = process_video_horizontal(clip_temp_path, clip_final_path, crf=16)
                 
                 if success:
                     print(f"   ✅ Clip {i+1} ready: {clip_final_path}")
@@ -1204,4 +1277,3 @@ if __name__ == '__main__':
 
     total_time = time.time() - script_start_time
     print(f"\n⏱️  Total execution time: {total_time:.2f}s")
-

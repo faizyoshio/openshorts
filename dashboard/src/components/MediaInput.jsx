@@ -5,6 +5,7 @@ export default function MediaInput({ onProcess, isProcessing }) {
     const [mode, setMode] = useState('url'); // 'url' | 'file'
     const [url, setUrl] = useState('');
     const [file, setFile] = useState(null);
+    const [orientationMode, setOrientationMode] = useState('vertical'); // 'vertical' | 'horizontal'
     const [durationMode, setDurationMode] = useState('auto'); // 'auto' | 'custom'
     const [clipDuration, setClipDuration] = useState(30);
     const [countMode, setCountMode] = useState('auto'); // 'auto' | 'custom'
@@ -16,6 +17,7 @@ export default function MediaInput({ onProcess, isProcessing }) {
         const safeCount = Math.max(1, Math.min(20, Number(clipCount) || 6));
 
         const options = {
+            orientationMode,
             durationMode,
             clipDuration: durationMode === 'custom' ? safeDuration : null,
             countMode,
@@ -109,7 +111,30 @@ export default function MediaInput({ onProcess, isProcessing }) {
                     </div>
                 )}
 
-                <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-black/20 border border-white/5 rounded-xl p-4 space-y-3">
+                        <p className="text-xs uppercase tracking-wide text-zinc-500">Output Orientation</p>
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setOrientationMode('vertical')}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${orientationMode === 'vertical' ? 'bg-primary/20 text-primary border border-primary/30' : 'bg-white/5 text-zinc-400 hover:text-white border border-white/10'}`}
+                            >
+                                Vertical
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setOrientationMode('horizontal')}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${orientationMode === 'horizontal' ? 'bg-primary/20 text-primary border border-primary/30' : 'bg-white/5 text-zinc-400 hover:text-white border border-white/10'}`}
+                            >
+                                Horizontal
+                            </button>
+                        </div>
+                        <p className="text-[11px] text-zinc-500">
+                            Vertical: 9:16 reframing. Horizontal: keep original framing.
+                        </p>
+                    </div>
+
                     <div className="bg-black/20 border border-white/5 rounded-xl p-4 space-y-3">
                         <p className="text-xs uppercase tracking-wide text-zinc-500">Clip Duration</p>
                         <div className="flex items-center gap-2">
