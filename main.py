@@ -28,6 +28,29 @@ load_dotenv()
 # --- Constants ---
 ASPECT_RATIO = 9 / 16
 
+
+def _safe_env_int(name, default):
+    """Read int from env with fallback."""
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except Exception:
+        return default
+
+
+# Final vertical export size. Defaults to 1080x1920 for Shorts/Reels/TikTok.
+VERTICAL_OUTPUT_HEIGHT = _safe_env_int("VERTICAL_OUTPUT_HEIGHT", 1920)
+if VERTICAL_OUTPUT_HEIGHT < 360:
+    VERTICAL_OUTPUT_HEIGHT = 1920
+if VERTICAL_OUTPUT_HEIGHT % 2 != 0:
+    VERTICAL_OUTPUT_HEIGHT += 1
+
+VERTICAL_OUTPUT_WIDTH = int(VERTICAL_OUTPUT_HEIGHT * ASPECT_RATIO)
+if VERTICAL_OUTPUT_WIDTH % 2 != 0:
+    VERTICAL_OUTPUT_WIDTH += 1
+
 GEMINI_PROMPT_TEMPLATE = """
 You are a senior short-form video editor. Read the ENTIRE transcript and word-level timestamps to choose exactly {clip_count} MOST VIRAL moments for TikTok/IG Reels/YouTube Shorts.
 Each clip must be between {min_clip_duration} and {max_clip_duration} seconds long.
@@ -516,7 +539,6 @@ def download_youtube_video(url, output_dir="."):
         'extractor_args': {
             'youtube': {
                 'player_client': ['android', 'mweb', 'web', 'tv_embed'],
-                'player_skip': ['webpage', 'configs'],
             }
         },
         'http_headers': {
@@ -580,9 +602,9 @@ Technical Details: {str(e)}
     
     ydl_opts = {
         **_COMMON_YDL_OPTS,
-        # yt-dlp README format selector for best quality with fallback.
+        # Try HD first, then fallback to best available if source/platform is limited.
         # yt-dlp merge step is stream-copy (no re-encode / no recompress).
-        'format': 'bv*+ba/b',
+        'format': 'bestvideo*[height>=1080]+bestaudio/best[height>=1080]/bestvideo*+bestaudio/best',
         # Prioritize highest available resolution/fps first.
         'format_sort': ['res', 'fps', 'hdr:12', 'vcodec', 'channels', 'acodec', 'size', 'br', 'asr', 'proto', 'ext', 'hasaud', 'source', 'id'],
         'check_formats': True,
@@ -649,6 +671,12 @@ Technical Details: {str(e)}
         raise FileNotFoundError(
             f"Could not find downloaded video for title '{sanitized_title}' in {output_dir}"
         )
+
+    try:
+        dl_width, dl_height = get_video_resolution(downloaded_file)
+        print(f"✅ Downloaded source resolution: {dl_width}x{dl_height}")
+    except Exception as e:
+        print(f"⚠️ Could not read downloaded source resolution: {e}")
     
     step_end_time = time.time()
     print(f"✅ Video downloaded in {step_end_time - step_start_time:.2f}s: {downloaded_file}")
@@ -689,10 +717,11 @@ def process_video_to_vertical(input_video, final_output_video):
     print("\n   🧠 Step 2: Preparing Active Tracking...")
     original_width, original_height = get_video_resolution(input_video)
     
-    OUTPUT_HEIGHT = original_height
-    OUTPUT_WIDTH = int(OUTPUT_HEIGHT * ASPECT_RATIO)
-    if OUTPUT_WIDTH % 2 != 0:
-        OUTPUT_WIDTH += 1
+    # Keep export resolution consistent for social platforms (default 1080x1920).
+    OUTPUT_WIDTH = VERTICAL_OUTPUT_WIDTH
+    OUTPUT_HEIGHT = VERTICAL_OUTPUT_HEIGHT
+    print(f"   📐 Source resolution: {original_width}x{original_height}")
+    print(f"   📐 Vertical export resolution: {OUTPUT_WIDTH}x{OUTPUT_HEIGHT}")
 
     # Initialize Cameraman
     cameraman = SmoothedCameraman(OUTPUT_WIDTH, OUTPUT_HEIGHT, original_width, original_height)

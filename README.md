@@ -63,6 +63,7 @@ This fork normalizes output for compatibility:
 - Container: `MP4`
 - Video codec: `H.264` (`libx264`, `yuv420p`)
 - Audio codec: `AAC`
+- Vertical export resolution default: `1080x1920` (configurable with env `VERTICAL_OUTPUT_HEIGHT`)
 - `+faststart` enabled for web playback
 
 ## Social Posting Setup (Upload-Post)
@@ -75,7 +76,7 @@ This fork normalizes output for compatibility:
 ## Troubleshooting
 
 ### YouTube download quality looks low
-- This fork uses `yt-dlp` format selector `bv*+ba/b` and explicit format sorting.
+- This fork uses HD-first `yt-dlp` selector: `bestvideo*[height>=1080]+bestaudio/...` with fallback.
 - If source itself is low quality, output cannot exceed source quality.
 - If blocked by YouTube anti-bot, set `YOUTUBE_COOKIES` in `.env`.
 
@@ -123,11 +124,14 @@ The following are the major fork-specific changes added and maintained here:
 
 2. Output normalization to MP4/H.264/AAC
 - Main clip pipeline standardized to MP4 + H.264 + AAC
+- Vertical export standardized to `1080x1920` by default
+- Re-encode quality tightened (`CRF 18`) across edit/subtitle/hook paths
 - Added playback-friendly flags (`yuv420p`, `+faststart`)
 - Applied to core pipeline and edit/subtitle/hook paths
 
 3. Improved YouTube download quality selection
-- Updated yt-dlp format selector and sort strategy for best available source quality
+- Updated yt-dlp selector to prefer HD streams first (`>=1080p`) with fallback
+- Kept explicit format sorting for highest available quality
 - Added logs for selected/downloaded formats
 
 4. Auto-post diagnostics (Upload-Post)

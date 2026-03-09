@@ -208,7 +208,7 @@ class VideoEditor:
             print("⚠️ No filter string found. Writing MP4 H.264/AAC output.")
             subprocess.run([
                 'ffmpeg', '-y', '-i', input_path,
-                '-c:v', 'libx264', '-preset', 'fast', '-crf', '22',
+                '-c:v', 'libx264', '-preset', 'fast', '-crf', '18',
                 '-pix_fmt', 'yuv420p',
                 '-c:a', 'aac', '-b:a', '192k', '-ar', '48000',
                 '-movflags', '+faststart',
@@ -252,7 +252,7 @@ class VideoEditor:
             'ffmpeg', '-y',
             '-i', input_path,
             '-vf', filter_string,
-            '-c:v', 'libx264', '-preset', 'fast', '-crf', '22',
+            '-c:v', 'libx264', '-preset', 'fast', '-crf', '18',
             '-pix_fmt', 'yuv420p',
             '-c:a', 'aac', '-b:a', '192k', '-ar', '48000',
             '-movflags', '+faststart',
